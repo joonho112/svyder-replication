@@ -12,7 +12,6 @@
 
 **Companion R packages:**
 - [`svyder`](https://github.com/joonho112/svyder) -- compute, classify, and correct Design Effect Ratios
-- [`csSampling`](https://github.com/joonho112/csSampling) -- pseudo-posterior estimation with Cholesky sandwich correction
 
 ---
 
