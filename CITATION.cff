@@ -1,0 +1,38 @@
+cff-version: 1.2.0
+title: >-
+  Replication Package: Design Effect Ratios for Bayesian Survey Models
+message: >-
+  If you use this replication package, please cite the associated
+  paper using the metadata in this file.
+type: software
+authors:
+  - given-names: JoonHo
+    family-names: Lee
+    email: jlee296@ua.edu
+    affiliation: The University of Alabama
+    orcid: 'https://orcid.org/0009-0006-4019-8703'
+repository-code: 'https://github.com/joonho112/svyder-replication'
+url: 'https://github.com/joonho112/svyder'
+keywords:
+  - design effect ratio
+  - Bayesian hierarchical model
+  - sandwich variance
+  - survey weighting
+  - selective correction
+  - replication
+license: MIT
+doi: "10.xxxx/xxxxx"
+preferred-citation:
+  type: article
+  authors:
+    - given-names: JoonHo
+      family-names: Lee
+      email: jlee296@ua.edu
+      affiliation: The University of Alabama
+      orcid: 'https://orcid.org/0009-0006-4019-8703'
+  title: >-
+    Design Effect Ratios for Bayesian Survey Models: A Diagnostic Framework
+    for Identifying Survey-Sensitive Parameters
+  year: 2026
+  journal: arXiv preprint
+  doi: "10.xxxx/xxxxx"
