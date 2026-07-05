@@ -1,0 +1,55 @@
+project:
+  type: book
+  output-dir: _book
+  execute-dir: project
+
+book:
+  title: "Design Effect Ratios: A Replication Guide"
+  subtitle: "Companion to Lee, Williams, and Savitsky (2026)"
+  author:
+    - name: JoonHo Lee
+      affiliations: [The University of Alabama]
+    - name: Matthew R. Williams
+      affiliations: [U.S. Bureau of Labor Statistics]
+    - name: Terrance D. Savitsky
+      affiliations: [U.S. Bureau of Labor Statistics]
+  date: "2026"
+  chapters:
+    - index.qmd
+    - 01-der-in-brief.qmd
+    - 02-getting-started.qmd
+    - 03-simulation-design.qmd
+    - 04-simulation-pipeline.qmd
+    - 05-simulation-results.qmd
+    - 06-application-data.qmd
+    - 07-application-results.qmd
+    - 08-reproducibility.qmd
+  repo-url: "https://github.com/joonho112/svyder-replication"
+  repo-actions: [source, issue]
+  page-navigation: true
+  search: true
+  sidebar:
+    style: docked
+    collapse-level: 1
+
+bibliography: references.bib
+
+format:
+  html:
+    theme:
+      - cosmo
+      - custom.scss
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    code-overflow: wrap
+    fig-align: center
+    tbl-cap-location: bottom
+    smooth-scroll: true
+    link-external-newwindow: true
+
+execute:
+  freeze: auto
+  echo: true
+  warning: false
+  message: false

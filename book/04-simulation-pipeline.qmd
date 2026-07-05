@@ -1,0 +1,162 @@
+# Simulation: the pipeline
+
+The previous chapter fixed the design: a 24-cell grid and a two-stage sampling
+mechanism. This chapter shows how the design becomes 4,800 fitted models and
+then a table of numbers. It is the Track A compute path, and it follows
+[the design](03-simulation-design.qmd) stage by stage.
+
+The pipeline is a chain of scripts in `code/01_simulation/`, numbered in the
+order a replication flows through them: configuration
+(`sim_00_config.R`), data generation (`sim_01_dgp.R`), fitting
+(`sim_02_fit.R`), post-processing (`sim_03_postprocess.R`), one replication
+(`sim_04_run_single.R`), and the full grid (`sim_05_run_batch.R`). Aggregation
+(`code/03_results/results_02_aggregate.R`) turns the shards into the results.
+
+## Configuration
+
+`sim_00_config.R` is pure base R and self-contained. It defines `SIM_PARAMS`,
+a single list that holds every setting: the true coefficients
+\((\beta_0,\beta_1,\beta_2) = (-0.5,\,0.5,\,0.3)\), the fixed ICC of 0.15, the
+population sizes, the informativeness calibration, the weight convention
+(global unit-mean), the MCMC settings, the DER threshold and CI level, and the
+convergence-gate thresholds. Deriving `sigma_theta` from the ICC happens here
+too.
+
+A handful of functions turn `SIM_PARAMS` into the grid the rest of the pipeline
+consumes:
+
+- `build_scenario_grid()` crosses the four factors and returns the 24-cell
+  grid, one row per cell.
+- `make_cell_id()` and `parse_cell_id()` convert between a cell's factor levels
+  and its compact id (for example `J020_N10_GSTR_PW`), so a cell id round-trips.
+- `get_rep_seed(cell_number, rep_id)` returns a deterministic seed for each
+  replication, computed from a base seed of 20260704 as
+  `base_seed + cell_number * 10000 + rep_id`. The 10,000-wide stride keeps every
+  cell's replication stream disjoint. This seed is why Track A reproduces the
+  shipped files bit-for-bit: the same `(cell, rep_id)` always draws the same
+  data.
+
+Because the script only defines objects, sourcing it and asking for the grid
+size is a cheap way to confirm the design is what the paper claims:
+
+```{r}
+#| label: grid-size
+#| echo: true
+source("../code/01_simulation/sim_00_config.R")
+nrow(build_scenario_grid())
+```
+
+## Data generation
+
+`sim_01_dgp.R` provides `generate_survey_data(cell, seed)`. Given one row of the
+grid and a seed, it runs the two-stage sampling mechanism from
+[the design chapter](03-simulation-design.qmd): it builds a finite population,
+draws a genuine two-stage sample (PPS at stage one, Poisson at stage two, with
+the arm deciding whether the design PSU is the model group), and returns the
+sampled data together with the **exact** inverse-probability weights, normalized
+to a global unit mean. The realized Kish design effect is a measured property of
+the returned weights, never an input.
+
+The two edge-case rules from the design chapter live here: empty second-stage
+Poisson samples are retained as drawn (never redrawn), and a replicate in which
+some model group ends up with no sampled units is regenerated from an offset
+seed. Both keep the weights exactly equal to the inverse first-order inclusion
+probabilities, which is what the bit-for-bit reproducibility rests on. The file
+also carries `dgp_acceptance_test()`, which checks these properties --- exact
+first-order probabilities, response-dependent selection, DEFF separation across
+the informativeness levels --- on the analysis weights.
+
+## Fitting
+
+`sim_02_fit.R` provides `fit_hlr()`, which fits the weighted hierarchical
+logistic regression in `stan/hlr_weighted.stan` through `cmdstanr`. The model is
+written in the non-centered parameterization
+(\(\theta_j = \sigma_\theta\,\eta_j,\ \eta_j \sim \mathcal{N}(0,1)\)) and scales
+each observation's log-likelihood by its survey weight; a generated-quantities
+block returns the weighted score residuals that the sandwich estimator needs.
+Sampling uses 4 chains of 1,500 post-warmup draws after 1,000 warmup iterations
+--- 6,000 draws in all --- at `adapt_delta` 0.90.
+
+Convergence is then judged by a strict gate (`gate()` /
+`run_convergence_gate()`), and this is the standard the manuscript claims. It
+requires split-\(\widehat{R} \le 1.01\) on **all** parameters --- the fixed
+effects, `sigma_theta`, every state effect \(\theta_j\), and the non-centered
+`eta_raw` --- together with bulk ESS \(\ge 100\) and **zero** divergent
+transitions. Across the 4,800 replications, 99.3% pass. A gate-failing
+replication is not discarded: it is written to disk with its verdict recorded
+and simply excluded from the summaries downstream.
+
+::: {.callout-note}
+A weaker legacy gate (\(\widehat{R} \le 1.10\) on the fixed effects and
+`sigma_theta` only, tolerating up to 5% divergences) is retained as a documented
+alternative in `SIM_PARAMS$convergence_gate$v1_weak`, but the strict gate is the
+default and the one the paper reports.
+:::
+
+## Post-processing
+
+`sim_03_postprocess.R` turns one converged fit into the quantities the results
+are built from. It constructs the bread (the penalized posterior Hessian
+\(H\)) and the stratified, centered, degrees-of-freedom-corrected meat
+(\(J_c\)), assembles the sandwich variance \(V = H^{-1} J_c H^{-1}\), and
+divides its diagonal by the diagonal of the MCMC posterior covariance to get the
+DER for every parameter. It does this for both declared targets --- the
+model-group target and, in the PSUs-within-groups arm, the design-PSU target ---
+and classifies each parameter at \(c_0 = 1.2\). It then applies the selective
+block-Cholesky correction to the flagged block only, and records 90% interval
+coverage and widths for three strategies --- naive, selective, and blanket ---
+against the truth that is known by construction.
+
+## One replication
+
+`sim_04_run_single.R` provides `run_single_rep(cell, rep_id, out_dir)`, which
+chains the four stages for a single replication: generate the data at
+`get_rep_seed(cell_number, rep_id)`, fit the model, run the strict gate, and
+compute the dual-target DER, corrections, and coverage. In the sampled-groups
+arm the design PSU *is* the model group, so the two targets coincide and the PSU
+target is not recomputed.
+
+The output is deliberately compact. Each call writes one
+`output/simulation/<cell_id>/rep_XXXX.rds` --- a few KB --- holding the DER
+vectors, the flagged sets, coverage indicators and interval widths per target
+and strategy, the gate verdict, realized-design diagnostics, and point
+estimates. It does **not** store the raw posterior draws or any \(d \times d\)
+matrix, which is what keeps the full grid's on-disk footprint small enough to
+ship. Writes are atomic (write to a temporary file, then rename), and an
+existing rep file is returned as-is rather than recomputed, so a rerun resumes.
+
+## The full grid
+
+`sim_05_run_batch.R` is the command-line driver that produces the whole grid. It
+runs replications in parallel with `parallel::mclapply`, isolates each
+replication in a `tryCatch` (a hard failure writes a `rep_XXXX_ERROR.txt` and the
+batch moves on), and skips replications whose output already exists, so an
+interrupted run picks up where it left off. It takes four flags --- `--cells`,
+`--reps`, `--workers`, and `--outdir` (default `output/simulation`) --- and its
+deterministic, cell-major task ordering makes it straightforward to adapt to an
+HPC job array by slicing cells or reps across tasks. A typical local invocation
+is:
+
+```bash
+Rscript code/01_simulation/sim_05_run_batch.R --cells all --reps 1:200 --workers 8
+```
+
+Each worker runs one Stan chain at a time (the driver sets `PARALLEL_CHAINS` to 1
+unless you set it yourself), so the effective thread count is roughly the worker
+count; size `--workers` to the cores you have. The driver prints periodic
+progress and a final tally of passed, gate-failed, skipped, and errored tasks.
+
+## Aggregation
+
+`results_02_aggregate.R` reads all 4,800 shards, drops the gate failures from
+the summaries (while counting and reporting them), and builds the per-cell
+summary, the figures, and the tables of
+[the results chapter](05-simulation-results.qmd). It asserts that it loaded
+exactly \(24 \times 200 = 4{,}800\) replications before it proceeds.
+
+The important practical point is that this step needs only the shards, and the
+shards ship with the package. A reader can therefore run the aggregation --- and
+so reproduce every simulation figure and table --- **without** rerunning a single
+model. The `output/simulation/` directory in a fresh clone already contains all
+4,800 replication files, so [the results chapter](05-simulation-results.qmd)
+works out of the box.

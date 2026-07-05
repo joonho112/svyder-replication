@@ -1,0 +1,128 @@
+# Reproducibility
+
+This closing chapter gives a reader everything needed to trust the numbers in
+this guide and to rerun them: the software environment, the seeds that make the
+runs deterministic, a map from each paper output to the script that produces it,
+and an inventory of what is shipped. Every figure and table in the guide is
+regenerated from these files; nothing is transcribed by hand.
+
+## Environment
+
+The package builds under **R $\ge$ 4.5** and was built and rendered on R 4.6.
+The two tracks have different requirements:
+
+- **Track A** (from-scratch: simulation plus the restricted-data application)
+  needs **CmdStan $\ge$ 2.35** through the `cmdstanr` interface and the
+  `svyder` package, because it fits the Stan models and calls the production
+  diagnostic API.
+- **Track B** (regenerate every figure and table from the shipped results) and
+  **this book** need **neither Stan, `svyder`, nor the restricted data**. Track
+  B reads precomputed `.rds` files and fits nothing.
+
+The production Design Effect Ratio implementation lives in the
+[`svyder`](https://github.com/joonho112/svyder) package, which Track A calls
+directly. The files under `code/helpers/` are **self-contained ports of the same
+computations**, so the replication does not depend on a moving upstream package:
+it can be pinned on its own and will reproduce even if `svyder` changes. The
+setup script `code/00_setup.R` is track-aware: by default it checks the R
+version and installs/loads only the CRAN packages needed for Track B reporting
+and this book. To prepare the full Track A toolchain, set
+`SVYDER_TRACK = "A"` before sourcing the script; that path additionally checks
+`cmdstanr`, verifies or installs CmdStan, and installs `svyder` from GitHub.
+
+A live `sessionInfo()` for the environment that rendered this page appears
+[at the end of the chapter](#session-information).
+
+## Seeds and determinism
+
+The simulation is fully deterministic. The base seed is **20260704**, and the
+helper `get_rep_seed(cell_number, rep_id)` in
+`code/01_simulation/sim_00_config.R` assigns each replication its own
+non-overlapping stream,
+
+```r
+get_rep_seed <- function(cell_number, rep_id, base_seed = 20260704L) {
+  as.integer(base_seed + cell_number * 10000L + rep_id)
+}
+```
+
+Because every replication draws from a seed fixed this way --- and the two
+edge-case rules described in the [simulation design](03-simulation-design.qmd)
+keep the sampled weights exact --- rerunning Track A reproduces the shipped
+replication files **bit-for-bit**, which has been verified. The NSECE fit is
+seeded separately, at **20260705**; its four chains, warmup, and `adapt_delta`
+are recorded in the fit metadata printed in the
+[application chapter](06-application-data.qmd).
+
+## Provenance map
+
+Each paper output is produced by exactly one script. The table below maps them.
+
+| Output | Produced by | Reads from |
+|:--|:--|:--|
+| Figure 1 (theory curves) | `code/03_results/results_01_theory.R` | closed forms only (no data) |
+| Figure 2 (DER separation), Figure 3 (coverage), Table 2 (coverage) | `code/03_results/results_02_aggregate.R` | the simulation shards |
+| Figure 4 (NSECE dual-target), Table 3 (dual-target DER), Table 5 (threshold sweep) | `code/03_results/results_02_aggregate.R` | `nsece_v2_refit.rds` |
+| Table 4 (weight-convention sensitivity) | `code/03_results/results_02_aggregate.R` | `nsece_v2_refit.rds` + `nsece_supp.rds` |
+| The 4,800 simulation shards | `code/01_simulation/sim_05_run_batch.R` (via `sim_04_run_single.R` and stages `sim_00`--`sim_03`) | synthetic data generated internally |
+| `nsece_v2_refit.rds` | `code/02_application/app_02_fit_refit.R` | restricted NSECE derivatives |
+| `nsece_supp.rds` | `code/02_application/app_03_der_supplement.R` | restricted NSECE derivatives |
+
+Figure 1 is analytic and needs no inputs. The two `results_*` scripts are the
+whole of the reporting stage (Track B): they fit no models and read no
+restricted data. The simulation shards and the two NSECE result files are their
+only inputs, and all three are shipped.
+
+## What is shipped for Track B
+
+Track B runs entirely from files included in the package, all of them
+non-identifiable:
+
+- **The 4,800 simulation replication files** under `output/simulation/`, laid
+  out as 24 design cells $\times$ 200 replications. Each `rep_XXXX.rds` carries
+  the per-replication DER vectors, coverage, and interval widths --- synthetic
+  data only.
+- **The per-cell simulation summary** under `data/precomputed/simulation/`
+  (`simulation_cell_summary.rds`), the aggregated view the figures and tables
+  read.
+- **The two NSECE result files** under `data/precomputed/application/`:
+  `nsece_v2_refit.rds` (posterior draws and dual-target DER results under the
+  declared convention) and `nsece_supp.rds` (the weight-convention sensitivity
+  and the structural factors).
+
+The **restricted NSECE microdata are never shipped** and never committed. The
+result files carry posterior summaries, DER vectors, and scalars --- no
+respondent-level record of any kind. See `data/DATA_ACCESS.md` and the
+[application chapter](06-application-data.qmd) for the boundary in full.
+
+## A note on the convergence gate
+
+Every fit is held to the same **strict** gate: split-$\widehat{R} \le 1.01$ on
+**all** parameters, bulk ESS $\ge 100$, and zero divergent transitions. A
+replication that fails any of these is excluded from the summaries.
+
+In the simulation, **33 of the 4,800 replications fail the gate** (a pass rate
+of about 99.3%). The failures are excluded from every reported summary but
+**retained on disk**, so the exclusion is auditable rather than silent: the
+shards are all present under `output/simulation/`, and the per-cell summary
+records the fail counts alongside the used counts. The NSECE fit clears the gate
+comfortably, at $\widehat{R} \le 1.004$ with no divergences, as the
+[application chapter](06-application-data.qmd) shows.
+
+## Where to go next
+
+For the theory --- the definitions, the tier decomposition, the theorems, and
+their proofs --- see the paper [@LeeWilliamsSavitsky2026]. For the production
+Design Effect Ratio API that Track A calls, and that you would use on your own
+survey model, see the [`svyder`](https://github.com/joonho112/svyder)
+documentation. This guide has shown how the two studies in the paper are set up,
+run, and reduced to the reported numbers; the paper and the package carry it the
+rest of the way.
+
+## Session information {#session-information}
+
+```{r}
+#| label: sessioninfo
+#| echo: false
+sessionInfo()
+```

@@ -1,0 +1,103 @@
+# Simulation: the design
+
+The simulation asks a sharp question: when the sampling design is genuinely
+informative, does the DER flag the parameters that need correction, and only
+those? To answer it we generate finite populations, draw genuine two-stage
+samples from them, and keep the exact inverse-probability weights. This chapter
+describes the design; the next shows how it is run.
+
+The design lives in `code/01_simulation/sim_00_config.R` (the factorial grid and
+the seeds) and `code/01_simulation/sim_01_dgp.R` (the sampling mechanism).
+
+## The factorial grid
+
+Four factors are crossed, for $2 \times 2 \times 3 \times 2 = 24$ cells, each
+run for 200 replications --- 4,800 fitted models in total.
+
+| Factor | Levels | Values |
+|:--|:--:|:--|
+| Number of groups $J$ | 2 | 20, 50 |
+| Expected group size $\bar n_j$ | 2 | 10, 50 |
+| Informativeness | 3 | none, moderate, strong |
+| Structural arm | 2 | sampled groups ($c = j$), PSUs within groups ($c \neq j$) |
+
+The intraclass correlation is held fixed at 0.15 across all cells; the design
+spends its cells on the sampling *mechanism* rather than on the ICC. Each cell
+is identified by a compact id --- for example `J020_N10_GSTR_PW` is $J = 20$,
+$\bar n_j = 10$, strong informativeness, PSUs-within-groups. The `build_scenario_grid()`
+function assembles the grid:
+
+```{r}
+#| label: grid
+#| echo: false
+cells <- readRDS("../data/precomputed/simulation/simulation_cell_summary.rds")
+tab <- cells[order(cells$cell_id),
+             c("cell_id", "J", "nbar_j", "informativeness", "structure")]
+knitr::kable(head(tab, 8), row.names = FALSE,
+             col.names = c("Cell id", "J", "n_bar", "Informativeness", "Arm"),
+             caption = "The first 8 of the 24 design cells (from the shipped cell summary).")
+```
+
+## The data-generating model
+
+Within every cell the outcome follows a two-level hierarchical logistic
+regression,
+
+$$
+y_{ij} \mid \theta_j \;\sim\; \text{Bernoulli}\!\left(\text{expit}\big(\beta_0 + \beta_1 x^{(W)}_{ij} + \beta_2 x^{(B)}_j + \theta_j\big)\right),
+\qquad \theta_j \sim \mathcal{N}(0, \sigma^2_\theta),
+$$
+
+with true coefficients $(\beta_0, \beta_1, \beta_2) = (-0.5,\, 0.5,\, 0.3)$ and
+$\sigma^2_\theta$ set so that the latent-scale ICC is 0.15. Here $x^{(W)}$ is a
+purely within-group covariate (so $\beta_1$ is a [I-a]{.tier .tier-ia}
+within-group effect) and $x^{(B)}_j$ is a group-level covariate (so $\beta_2$ is
+a [I-b]{.tier .tier-ib} between-group effect). This gives a clean test: we know,
+by construction, which coefficient should be exposed to the design and which
+should be shielded.
+
+## The sampling mechanism
+
+The novelty of the design is that the samples are *drawn*, not labelled with
+post-hoc weights. Two structural arms realize two ways a design can be
+informative.
+
+**Sampled groups ($c = j$).** Stage one draws $J$ of $M = 200$ population groups
+by randomized systematic probability-proportional-to-size sampling, with size
+measures that depend on the group random effect $\theta_g$ --- so which groups
+enter the sample depends on the very quantity the model treats as random. Stage
+two Poisson-samples units within each selected group with probabilities that
+depend on the outcome $y$. Here the design PSU *is* the model group.
+
+**PSUs within groups ($c \neq j$).** All $J$ groups are observed, as in the
+NSECE application. Within each group, 4 of 12 population PSUs are sampled by PPS
+with size measures that depend on a PSU-level outcome shock that the analysis
+model deliberately omits; units are then Poisson-sampled within PSUs. The PSU
+stage is stratified by group, and the design PSU is *not* the model group. The
+two aggregation units --- design PSU and model group --- genuinely differ, and
+the truth is known for both.
+
+In both arms the survey weight is the exact inverse of the product of the
+stage-specific inclusion probabilities, rescaled to a global unit mean
+[@SavitskyToth2016]. The realized Kish design effect is therefore a *measured*
+consequence of the mechanism, not an input; it averages about 1.65, 2.0, and
+2.5--3.9 across the none, moderate, and strong levels.
+
+## Two rules that keep the weights exact
+
+Because the samples are genuine draws, two edge cases are handled explicitly so
+that the inverse-probability weights stay exact:
+
+1. **Empty second-stage samples are kept as drawn.** A selected PSU whose Poisson
+   second stage is empty enters the stratified meat as a zero-score cluster (it
+   still contributes to within-stratum centering and the finite-cluster
+   correction); it is not redrawn or forced in. In the smallest cells this
+   affects a few percent of selected PSUs per replication.
+2. **A degenerate replicate is regenerated from an offset seed.** If an entire
+   model group ends up with no sampled units --- a rare event confined to the
+   $\bar n_j = 10$ cells --- the replicate is regenerated from a deterministically
+   offset seed. Across all 4,800 replications this rule fires exactly twice.
+
+These rules matter for reproducibility: they are the reason the shipped
+replication files can be regenerated bit-for-bit, which the next chapter
+demonstrates.

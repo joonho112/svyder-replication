@@ -1,0 +1,49 @@
+/*-- scss:defaults --*/
+
+$primary: #1a5276;
+$font-size-root: 16px;
+$headings-font-weight: 600;
+
+/*-- scss:rules --*/
+
+h1, h2 { color: #1a5276; }
+h3, h4 { color: #21618c; }
+
+// A soft callout used for the "what you will do" summary boxes.
+.callout-guide {
+  border-left: 4px solid #1a5276;
+  background: #f0f6fa;
+  padding: 0.8rem 1rem;
+  margin: 1rem 0;
+  border-radius: 4px;
+}
+
+// Tier badges, matching the paper's four-tier vocabulary.
+.tier {
+  display: inline-block;
+  padding: 0.05rem 0.5rem;
+  border-radius: 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.tier-ia { background: #fdecea; color: #b03a2e; }   // exposed
+.tier-ib { background: #eaf2f8; color: #1a5276; }   // shielded
+.tier-ii { background: #eafaf1; color: #1e8449; }   // protected
+.tier-iii { background: #f4f4f4; color: #6c757d; }  // excluded
+
+table {
+  font-size: 0.92rem;
+}
+
+blockquote {
+  border-left: 3px solid #aab7b8;
+  background: #fbfcfc;
+  padding: 0.5rem 1rem;
+  font-size: 0.95rem;
+}
+
+figcaption {
+  font-size: 0.85rem;
+  color: #566573;
+}

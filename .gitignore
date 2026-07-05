@@ -1,0 +1,65 @@
+# =============================================================================
+# .gitignore for svyder-replication
+# =============================================================================
+
+# --- R session files ---
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+.Rapp.history
+
+# --- R package build artifacts ---
+*.Rcheck/
+*.tar.gz
+*.Rproj.user/
+
+# --- Restricted-use data (NSECE) ---
+# These files contain restricted-use survey data and MUST NOT be committed.
+# See data/DATA_ACCESS.md for instructions on obtaining the data.
+data/nsece/
+data/restricted/
+data/*.csv
+data/*.dta
+data/*.sav
+data/*.sas7bdat
+
+# --- Model output files ---
+# .rds objects are large; ignore them by default, but DO ship the precomputed
+# Track-B inputs and the simulation replication files that the reporting scripts
+# read. Restricted-data derivatives live under data/nsece/ (ignored above).
+*.rds
+!/data/precomputed/**
+!/output/simulation/**
+
+# --- Stan compiled models (rebuilt on first run) ---
+stan/*.exe
+stan/*.hpp
+stan/hlr_weighted
+
+# --- Quarto (rendered site; _freeze IS committed for reproducible rendering) ---
+/book/_book/
+/book/.quarto/
+
+# --- System files ---
+.DS_Store
+Thumbs.db
+*~
+*.swp
+
+# --- Temporary and cache files ---
+*.log
+*.out
+*.aux
+.cache/
+__pycache__/
+
+# --- IDE files ---
+.vscode/
+.idea/
+
+# --- Output files (reproducible, not tracked) ---
+output/figures/*.png
+output/figures/*.pdf
+output/tables/*.csv
+output/tables/*.tex

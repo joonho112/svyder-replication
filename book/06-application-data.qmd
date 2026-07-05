@@ -1,0 +1,205 @@
+# Application: data and model
+
+This chapter describes the empirical analysis that the
+[diagnostic chapter](07-application-results.qmd) reads its figure and tables
+from: what the survey is, which sample the model is fit to, and how the fit is
+produced. The diagnostic itself lives in the next chapter; here we set up the
+model behind it. Only the from-scratch application (Track A) touches the
+restricted survey files; everything the next chapter shows is read from the two
+shipped result objects.
+
+## The survey
+
+The application uses the **2019 National Survey of Early Care and Education
+(NSECE)**, conducted by NORC at the University of Chicago under the Office of
+Planning, Research, and Evaluation (OPRE), Administration for Children and
+Families, U.S. Department of Health and Human Services. The analysis draws on
+the restricted-use files, distributed through the Inter-university Consortium
+for Political and Social Research as ICPSR Study 38445.
+
+The NSECE is a **stratified, multistage cluster sample**. That design is the
+reason the analysis is a natural home for the DER: the sampling weights are
+genuinely informative, and the cluster-and-stratum structure is exactly what
+the design-based sandwich variance is built from. The restricted files carry
+the PSU and stratum identifiers that the design-PSU target needs; the public-use
+files do not.
+
+## The analysis sample
+
+The model is fit to center-based providers. The analysis sample is
+$N = 6{,}785$ providers nested in $J = 51$ groups --- the 50 states plus the
+District of Columbia. Because the groups are states and every state is
+represented, all 51 groups are observed **by construction**: there is no
+group-sampling stage, which is what makes this a clean instance of the
+PSUs-within-groups structure from the [simulation](03-simulation-design.qmd)
+rather than the sampled-groups structure. The design has **415 primary sampling
+units within 30 strata**. State sample sizes are uneven, ranging from 17 to
+1{,}110 providers (median 64).
+
+The Stan-ready metadata --- dimensions, the declared weight convention, the
+raw-weight Kish design effect, and the fit seed --- travel with the shipped
+result object and can be printed directly:
+
+```{r}
+#| label: meta
+#| echo: false
+refit <- readRDS("../data/precomputed/application/nsece_v2_refit.rds")
+meta  <- refit$stan_data_meta
+tab <- data.frame(
+  Quantity = c("Observations (N)", "Groups / states (J)",
+               "Fixed-effect columns (p)", "Weight convention",
+               "Raw-weight Kish DEFF", "Fit seed", "MCMC configuration"),
+  Value = c(format(meta$N, big.mark = ","),
+            as.character(meta$J), as.character(meta$p),
+            "global unit-mean (raw weights)",
+            formatC(meta$kish_raw, format = "f", digits = 2),
+            as.character(meta$seed), meta$mcmc),
+  check.names = FALSE)
+knitr::kable(tab, row.names = FALSE,
+             caption = "NSECE fit metadata, read from `nsece_v2_refit.rds`.")
+```
+
+## The model
+
+The outcome is provider participation in the state Infant--Toddler
+quality-improvement system, a binary indicator with a weighted prevalence of
+about 64.7%. The model is a **survey-weighted hierarchical logistic
+regression** with two fixed-effect covariates and a state random intercept,
+
+$$
+z_{ij} \mid \theta_j \;\sim\; \text{Bernoulli}\!\left(\text{expit}\big(\beta_0 + \beta_1\, \text{poverty\_cwc}_{ij} + \beta_2\, \text{tiered\_reim}_j + \theta_j\big)\right),
+\qquad \theta_j \sim \mathcal{N}(0, \sigma^2_\theta),
+$$
+
+fit for $j = 1, \dots, 51$ states as a weighted pseudo-posterior. The two
+covariates are chosen to sit on opposite sides of the tier structure:
+
+- **`poverty_cwc`** ([I-a]{.tier .tier-ia}) is the community poverty rate,
+  group-mean-centered **within each state**. After centering it carries only
+  within-state variation, so $\beta_1$ is a purely within-state covariate ---
+  the one coefficient the diagnostic should expose to the design.
+- **`tiered_reim`** ([I-b]{.tier .tier-ib}) is a state-level indicator for a
+  tiered reimbursement policy. It is constant within each state, so $\beta_2$ is
+  a between-state coefficient, shielded by the group structure.
+- The **51 state random intercepts** $\theta_j$ ([II]{.tier .tier-ii}) are
+  protected by shrinkage.
+
+The parameter vector is therefore the three fixed effects, the 51 random
+intercepts, and the group scale $\sigma_\theta$ ([III]{.tier .tier-iii}, a
+variance hyperparameter that is not certified) --- **54 parameters** enter the
+DER analysis (the intercept, two coefficients, and 51 state effects), matching
+the $3 + J = 54$ counted across the next chapter's tables.
+
+The pattern mirrors the simulation exactly: a within-group covariate that should
+approximate the design effect, a between-group covariate that should be
+shielded, and shrinkage-protected random effects. The difference is that here we
+do not know the truth, so the diagnostic is doing real work rather than being
+checked against a planted answer.
+
+## Declared choices
+
+A DER is defined only once two choices are declared: the weight-scaling
+convention and the aggregation unit (see [the DER in brief](01-der-in-brief.qmd)).
+The application fixes them as follows.
+
+**Weight convention.** The headline fit uses the **global unit-mean** convention
+on the raw design weights: each raw weight is divided by the overall mean of the
+raw weights, so the weights average to one across the full sample. On the raw
+weights this convention has a Kish design effect of about 3.76 (a weight
+coefficient of variation of about 1.66). The alternative within-state scaling is
+carried only for the [sensitivity analysis](07-application-results.qmd) in the
+next chapter; because the weights enter the pseudo-likelihood, it is a different
+pseudo-posterior, not a reweighting of the same draws.
+
+**Aggregation unit.** Both declared targets are reported. The **design-PSU
+target** (415 PSUs within 30 strata) is the primary, design-based answer: it
+aggregates the score contributions at the level the survey was actually drawn.
+The **model-group target** (51 states) is the lens for the closed forms, since
+the tier decomposition is stated in terms of the model group. The two targets
+genuinely differ here --- the design PSU is not the model group --- and the next
+chapter shows that they give different flag sets.
+
+## How the data are prepared and fit
+
+Three scripts under `code/02_application/` carry the Track A application, run in
+order.
+
+`app_01_prepare_data.R` builds the model-ready arrays from the restricted-use
+analysis extract. It group-mean-centers the poverty covariate within each state
+(and asserts the within-state means are zero to numerical precision), verifies
+that the tiered-reimbursement indicator is constant within every state before
+treating it as state-level, assembles the design matrix
+$X = [\text{intercept}, \text{poverty\_cwc}, \text{tiered\_reim}]$, and forms the
+within-state sensitivity weights. It writes two objects into the git-ignored
+restricted directory: `phase3_data.rds` (the model arrays `N`, `J`, `p`, `y`,
+`X`, `group`, plus `w`, the within-state sensitivity convention) and
+`phase3_analysis.rds` (an enriched data frame that carries the raw design weight
+together with the PSU and stratum indices the design-PSU target needs). Neither
+file is shipped. The headline v2 fit does not use `phase3_data$w`; it rebuilds
+its declared global unit-mean weights from `phase3_analysis$weight`.
+
+`app_02_fit_refit.R` fits the model. It forms the declared global unit-mean
+weights from the raw column, compiles the Stan model in `stan/hlr_weighted.stan`,
+and samples it with `cmdstanr` in the non-centered parameterization: **4 chains
+of 2,000 post-warmup draws each (2,000 warmup), with `adapt_delta = 0.95`**. The
+fit clears the strict convergence gate --- $\widehat{R} \le 1.004$ on all
+parameters, zero divergent transitions, and bulk ESS in the thousands --- and it
+supplies a plug-in group scale $\widehat{\sigma}_\theta$ of about 0.65 to the
+DER computation. The script then computes the dual-target DER with `svyder`
+(`der_compute`, `der_classify`, `der_correct` under both the design-PSU and
+model-group targets) and writes the shipped result, `nsece_v2_refit.rds`.
+
+`app_03_der_supplement.R` computes the two quantities that need the microdata
+but are not in the headline fit: the weight-convention sensitivity (the DER of
+the poverty coefficient and the flag counts under the within-state convention,
+evaluated on the stored draws of that fit) and the structural protection factors
+$R_k$ of the fixed effects, along with the effective per-state sample sizes under
+each convention. It writes the shipped `nsece_supp.rds`. As an integrity check it
+also re-derives the declared-convention DERs from the stored draws and confirms
+they reproduce the shipped refit to within numerical error.
+
+The strict gate and the plug-in $\widehat{\sigma}_\theta$ can be read straight
+from the shipped object:
+
+```{r}
+#| label: gate
+#| echo: false
+g <- refit$gate
+fmt <- function(x, d) formatC(x, format = "f", digits = d)
+tab <- data.frame(
+  Check = c("max split-Rhat (all parameters)", "min bulk ESS",
+            "min tail ESS", "divergent transitions",
+            "plug-in sigma_theta", "strict gate"),
+  Value = c(fmt(g$rhat_max, 4), format(round(g$ess_bulk_min)),
+            format(round(g$ess_tail_min)), as.character(g$n_divergent),
+            fmt(refit$sigma_theta_hat, 3),
+            if (isTRUE(g$pass)) "passed" else "failed"),
+  check.names = FALSE)
+knitr::kable(tab, row.names = FALSE,
+             caption = "Convergence gate and plug-in group scale for the NSECE fit (from `nsece_v2_refit.rds`).")
+```
+
+## Data access
+
+The split between the two tracks is sharp. **Only Track A of the application**
+needs the restricted NSECE data; **Track B** --- the perspective this guide is
+written from --- works entirely from the two shipped result files,
+`nsece_v2_refit.rds` and `nsece_supp.rds`, and fits nothing.
+
+For the ICPSR access process (Study 38445) and the exact data contract --- the
+names, types, and dimensions of the objects the Track A scripts expect, so a
+reader with their own NSECE extract can rebuild the inputs --- see
+`data/DATA_ACCESS.md`. In brief: the Track A scripts locate the restricted
+derivatives through the `NSECE_RESTRICTED_DIR` environment variable, falling back
+to the git-ignored `data/nsece/` directory inside the package. That directory,
+along with common microdata extensions, is listed in `.gitignore` so that
+respondent-level files cannot enter version control by accident.
+
+**No respondent-level data is shipped with this package.** The two objects under
+`data/precomputed/application/` carry posterior draws, DER vectors, and a handful
+of scalars and short summaries --- all non-identifiable. The restricted NSECE
+microdata are never included, never committed, and governed by the terms of the
+Restricted Data Use Agreement.
+
+With the fit in hand, the [next chapter](07-application-results.qmd) computes the
+diagnostic against both targets and reads off the figure and tables.

@@ -1,0 +1,82 @@
+# Welcome {.unnumbered}
+
+This guide is a companion to the paper
+
+> **Design Effect Ratios for Bayesian Survey Models: A Diagnostic Framework for Identifying Survey-Sensitive Parameters**
+> JoonHo Lee, Matthew R. Williams, and Terrance D. Savitsky (2026).
+
+It walks through the code that produces the paper's simulation study and its
+empirical application, so that a reader can see exactly how each design was set
+up, how it was run, and how the reported numbers and figures were obtained. It
+accompanies the replication package at
+[github.com/joonho112/svyder-replication](https://github.com/joonho112/svyder-replication)
+and the `svyder` R package at
+[github.com/joonho112/svyder](https://github.com/joonho112/svyder).
+
+## The idea in one paragraph
+
+When a Bayesian hierarchical model is fit to complex survey data as a weighted
+pseudo-posterior, the posterior does not automatically reflect the sampling
+design. The usual repair rescales the entire posterior toward a design-based
+sandwich variance, but applied to every parameter that is a mistake: a
+within-group covariate genuinely needs a wider interval, while a
+shrinkage-protected random effect or a between-group coefficient has its
+already-narrow interval crushed. The **Design Effect Ratio (DER)** is a
+per-parameter diagnostic --- the ratio of a parameter's design-based sandwich
+variance to its model-based posterior variance --- that says which is which,
+and drives a **compute--classify--correct** workflow that corrects only the
+parameters that need it [@LeeWilliamsSavitsky2026].
+
+## What the two studies show
+
+```{r}
+#| label: headline
+#| echo: false
+refit <- readRDS("../data/precomputed/application/nsece_v2_refit.rds")
+der_grp <- as.numeric(refit$fit_grp$der)
+der_psu <- as.numeric(refit$fit_psu$der)
+flag_grp <- sum(der_grp > 1.2)
+flag_psu <- sum(der_psu > 1.2)
+cells <- readRDS("../data/precomputed/simulation/simulation_cell_summary.rds")
+```
+
+The **simulation study** runs a 24-cell factorial design (2,400 fitted models
+per structural arm; 4,800 in total) under a genuine two-stage informative
+sampling mechanism. Selective correction restores near-nominal coverage of the
+exposed within-group coefficient while leaving protected parameters untouched;
+the within-group DER separates from every non-target parameter by a factor of
+at least 7.1.
+
+The **application** analyzes the 2019 National Survey of Early Care and
+Education. Evaluated against the model-group variance target, the diagnostic
+flags exactly `r flag_grp` of 54 parameters; evaluated against the design-PSU
+target, it flags `r flag_psu`. Every number and figure in this guide is
+regenerated from the results shipped with the package --- the two counts above
+are computed live from `nsece_v2_refit.rds`.
+
+## How to use this guide
+
+| Chapter | What it covers |
+|:--|:--|
+| [The DER in brief](01-der-in-brief.qmd) | The diagnostic, the four tiers, and the closed-form curves (Figure 1) |
+| [Getting started](02-getting-started.qmd) | Requirements, installation, and the two replication tracks |
+| [Simulation: the design](03-simulation-design.qmd) | The 24-cell grid and the two-stage sampling mechanism |
+| [Simulation: the pipeline](04-simulation-pipeline.qmd) | How one replication and the full grid are run |
+| [Simulation: the results](05-simulation-results.qmd) | Separation, coverage, and the threshold (Figures 2--3, Table 2) |
+| [Application: data and model](06-application-data.qmd) | The NSECE 2019 sample and the fitted model |
+| [Application: the diagnostic](07-application-results.qmd) | The dual-target analysis (Figure 4, Tables 3--5) |
+| [Reproducibility](08-reproducibility.qmd) | Environment, seeds, and how each output maps to a script |
+
+## Two ways to reproduce
+
+The package supports two tracks. **Track A** reruns everything from the
+beginning: the simulation on synthetic data, and the application on the
+restricted-use NSECE files. **Track B** regenerates every figure and table in
+minutes from the shipped, non-identifiable results, with no restricted data and
+no Stan. This guide is written from the Track B perspective; the Track A
+scripts are described alongside so you can see the full computation.
+
+::: {.callout-note}
+Theory is stated here only to the depth needed to read the code. For the
+definitions, theorems, and proofs, see the paper [@LeeWilliamsSavitsky2026].
+:::

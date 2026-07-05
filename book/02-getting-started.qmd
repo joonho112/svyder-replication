@@ -1,0 +1,145 @@
+# Getting started
+
+This chapter takes a reader from a fresh clone to regenerated figures and
+tables. It covers what to install, the two ways to reproduce the paper, and a
+short tour of the package so that the later chapters have a map to point at.
+
+## Requirements
+
+The package was built and checked on R 4.6; **R \(\ge\) 4.5** is required. The
+setup script enforces this and stops on older versions.
+
+- **Track B** (figures and tables) needs only CRAN packages used by the
+  reporting scripts and this book. No Stan, no `svyder`, no restricted data.
+- **Track A** (full recomputation) additionally needs **CmdStan (\(\ge\) 2.35)**
+  through `cmdstanr` and the `svyder` package, because the models are fit with
+  Stan and the application calls the production diagnostic API.
+- **LaTeX** is optional. The reporting scripts write `.tex` tables to
+  `output/tables/`; you need a LaTeX installation only if you want to typeset
+  those tables into a PDF. The numbers themselves are also written to `.csv`.
+
+## Installing dependencies
+
+The setup script is `code/00_setup.R`. It defaults to the public Track B path.
+Run it once from the package root:
+
+```r
+source("code/00_setup.R")
+```
+
+The script:
+
+1. checks the R version (\(\ge\) 4.5) and stops otherwise;
+2. installs and loads the CRAN packages needed by Track B reporting and book
+   rendering;
+3. skips `cmdstanr`, CmdStan, and `svyder` in the default Track B path;
+4. sets up the project paths and a master seed, and prints `sessionInfo()`.
+
+For Track A, opt in explicitly before sourcing the same script:
+
+```r
+Sys.setenv(SVYDER_TRACK = "A")
+source("code/00_setup.R")
+```
+
+Track A adds the from-scratch dependencies: `cmdstanr`, CmdStan, extra CRAN
+packages such as `posterior`, and `svyder` from GitHub. The `svyder` package
+implements the production diagnostic API; its documentation is at
+[joonho112.github.io/svyder](https://joonho112.github.io/svyder/).
+
+## The two tracks
+
+Both tracks reproduce the paper's numbers exactly. They differ only in where
+they start.
+
+| | Track A --- full recomputation | Track B --- figures and tables |
+|:--|:--|:--|
+| **Starts from** | raw / synthetic data | shipped precomputed results |
+| **Simulation** | regenerates all 4,800 replications on synthetic data (HPC recommended for the full grid) | reads the shipped per-replication files and summary |
+| **Application** | fits the NSECE model; needs the restricted-use data (ICPSR 38445) and Stan | reads the shipped model fit |
+| **Requires** | R, CmdStan, `svyder`, and (application only) restricted data | R plus CRAN packages |
+| **Time** | many hours for the simulation; a couple of hours for the NSECE fit | minutes on a laptop |
+
+The simulation is not merely reproducible but **bit-for-bit** reproducible from
+the seeds: each replication draws its data from a deterministic per-cell,
+per-replication seed, so a Track A rerun regenerates the shipped files exactly.
+[The pipeline chapter](04-simulation-pipeline.qmd) shows where that seed comes
+from. Track B is the default entry point and is what this guide is written
+from.
+
+## Track B quick start
+
+From the package root, or after opening `svyder-replication.Rproj` in RStudio,
+three lines regenerate everything:
+
+```r
+source("code/00_setup.R")                        # one-time Track B setup
+source("code/03_results/results_01_theory.R")    # Figure 1
+source("code/03_results/results_02_aggregate.R") # Figures 2-4, Tables 2-5
+```
+
+Outputs land in `output/figures/` (PDF and PNG) and `output/tables/` (LaTeX and
+CSV). `results_02_aggregate.R` reads the shipped per-replication files and the
+shipped NSECE fit; it fits no models and reads no restricted data. It also
+prints an integrity summary that re-derives the paper's headline quantities as
+it goes, so a successful run is self-checking.
+
+::: {.callout-note}
+The reporting scripts read only files that ship with the package. Track B
+therefore runs on a laptop with no Stan toolchain and no data-use agreement.
+:::
+
+## A tour of the repository
+
+The layout separates the two studies (simulation and application), the raw
+compute from the reporting, and the shipped results from the code that
+produces them.
+
+```
+svyder-replication/
+├── code/
+│   ├── 00_setup.R                 track-aware setup (Track B default)
+│   ├── 01_simulation/             build the 4,800 replications (Track A)
+│   │   ├── sim_00_config.R         the 24-cell factorial design and the seeds
+│   │   ├── sim_01_dgp.R            two-stage informative-sampling data generator
+│   │   ├── sim_02_fit.R            fit the weighted HLR in Stan; convergence gate
+│   │   ├── sim_03_postprocess.R    sandwich variance, DER, coverage per replication
+│   │   ├── sim_04_run_single.R     one replication end to end
+│   │   └── sim_05_run_batch.R      parallel CLI driver over the whole grid
+│   ├── 02_application/            the NSECE 2019 analysis (Track A; restricted data)
+│   │   ├── app_01_prepare_data.R   build the model-ready arrays from the extract
+│   │   ├── app_02_fit_refit.R      fit the model, dual-target DER
+│   │   └── app_03_der_supplement.R weight-convention sensitivity and factors R_k
+│   ├── 03_results/               regenerate the figures and tables (Track B)
+│   │   ├── results_01_theory.R     Figure 1 (closed-form DER curves)
+│   │   └── results_02_aggregate.R  Figures 2-4 and Tables 2-5
+│   └── helpers/                   self-contained DER / sandwich / plotting code
+├── stan/
+│   └── hlr_weighted.stan          weighted hierarchical logistic regression
+├── data/
+│   ├── DATA_ACCESS.md             how to obtain the restricted NSECE data
+│   └── precomputed/              shipped, non-identifiable results for Track B
+│       ├── simulation/            per-cell simulation summary
+│       └── application/           NSECE model fit and supplement
+├── output/
+│   ├── simulation/               the 4,800 per-replication files (shipped)
+│   ├── figures/                   regenerated figures land here
+│   └── tables/                    regenerated tables land here
+└── book/                         this guide
+```
+
+Two conventions are worth noting for reading the later chapters. The
+per-replication files under `output/simulation/` are the granular Track A
+output, one small `.rds` per replication; the `data/precomputed/` directory
+holds the compact, non-identifiable summaries that Track B reads. And the code
+is numbered in dependency order within each folder, so `sim_00` through `sim_05`
+is exactly the order in which a replication flows.
+
+## What comes next
+
+[The design chapter](03-simulation-design.qmd) describes the 24-cell grid and
+the two-stage sampling mechanism that the simulation is built on;
+[the pipeline chapter](04-simulation-pipeline.qmd) then shows how one
+replication and the full grid are actually run. For the empirical side,
+[the application chapter](06-application-data.qmd) describes the NSECE 2019
+sample and the fitted model.
